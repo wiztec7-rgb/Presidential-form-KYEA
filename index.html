@@ -600,26 +600,353 @@ button:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(184,129,10,.
 </div>
 
 <script>
+const SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbzrJPlXf7UAuMjzlST-Wp5WFstbz9XizlA2v1eIAtxK2fpieZFDJTs6dUnKFdSKfPtJ/exec";
 
-const applicationDate = document.querySelector('input[name="application_date"]');
-if (applicationDate && !applicationDate.value) {
-    applicationDate.value = new Date().toISOString().split("T")[0];
+
+/* =========================
+   GET FORM
+========================= */
+
+const form = document.getElementById("presidentialForm");
+
+if (!form) {
+  console.error('Form with id "presidentialForm" was not found.');
 }
 
-document.getElementById("presidentialForm").addEventListener("submit", function(event) {
-    event.preventDefault();
 
-    if (!this.checkValidity()) {
-        this.reportValidity();
-        return;
+/* =========================
+   SET APPLICATION DATE
+========================= */
+
+const applicationDate = document.querySelector(
+  'input[name="application_date"]'
+);
+
+function setApplicationDate() {
+  if (applicationDate) {
+    applicationDate.value = new Date()
+      .toISOString()
+      .split("T")[0];
+  }
+}
+
+if (applicationDate && !applicationDate.value) {
+  setApplicationDate();
+}
+
+
+/* =========================
+   CONVERT FILE TO BASE64
+========================= */
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      resolve(null);
+      return;
     }
 
-    alert(
-        "Your KYEA Presidential Candidate Application has been completed and is ready for submission."
-    );
-});
+    const reader = new FileReader();
 
+    reader.onload = () => {
+      resolve({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        base64: reader.result
+      });
+    };
+
+    reader.onerror = () => {
+      reject(
+        new Error(
+          "Unable to read file: " + file.name
+        )
+      );
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+
+/* =========================
+   FORM SUBMISSION
+========================= */
+
+if (form) {
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+
+
+    /* =========================
+       FORM VALIDATION
+    ========================= */
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+
+    /* =========================
+       GET SUBMIT BUTTON
+    ========================= */
+
+    const submitButton = form.querySelector(
+      'button[type="submit"]'
+    );
+
+    if (!submitButton) {
+      alert("Error: Submit button was not found.");
+      return;
+    }
+
+    const originalButtonText =
+      submitButton.textContent;
+
+
+    try {
+
+      /* =========================
+         DISABLE BUTTON
+      ========================= */
+
+      submitButton.disabled = true;
+
+      submitButton.textContent =
+        "PREPARING APPLICATION...";
+
+
+      /* =========================
+         COLLECT FORM DATA
+      ========================= */
+
+      const formData = new FormData(form);
+
+      const applicationData = {};
+
+
+      /* =========================
+         ADD NORMAL FIELDS
+      ========================= */
+
+      formData.forEach((value, key) => {
+
+        // File fields are handled separately.
+        if (value instanceof File) {
+          return;
+        }
+
+        applicationData[key] = value;
+      });
+
+
+      /* =========================
+         DECLARATION CHECKBOXES
+      ========================= */
+
+      const declarations = [
+        "declaration1",
+        "declaration2",
+        "declaration3",
+        "declaration4",
+        "declaration5"
+      ];
+
+      declarations.forEach((name) => {
+        const checkbox = form.querySelector(
+          `input[name="${name}"]`
+        );
+
+        applicationData[name] =
+          checkbox && checkbox.checked
+            ? "Yes"
+            : "No";
+      });
+
+
+      /* =========================
+         GET FILE INPUTS
+      ========================= */
+
+      const photoInput = form.querySelector(
+        'input[name="photo"]'
+      );
+
+      const documentInput = form.querySelector(
+        'input[name="document"]'
+      );
+
+
+      /* =========================
+         VALIDATE PHOTO
+      ========================= */
+
+      if (
+        !photoInput ||
+        !photoInput.files ||
+        photoInput.files.length === 0
+      ) {
+        throw new Error(
+          "Please select your passport-size photograph."
+        );
+      }
+
+
+      /* =========================
+         CONVERT PHOTO
+      ========================= */
+
+      submitButton.textContent =
+        "PROCESSING PHOTOGRAPH...";
+
+      applicationData.photo =
+        await fileToBase64(
+          photoInput.files[0]
+        );
+
+
+      /* =========================
+         CONVERT OPTIONAL DOCUMENT
+      ========================= */
+
+      if (
+        documentInput &&
+        documentInput.files &&
+        documentInput.files.length > 0
+      ) {
+        submitButton.textContent =
+          "PROCESSING DOCUMENT...";
+
+        applicationData.document =
+          await fileToBase64(
+            documentInput.files[0]
+          );
+      }
+
+
+      /* =========================
+         SEND APPLICATION
+      ========================= */
+
+      submitButton.textContent =
+        "SUBMITTING APPLICATION...";
+
+
+      const response = await fetch(
+        SCRIPT_URL,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "text/plain;charset=utf-8"
+          },
+
+          body: JSON.stringify(
+            applicationData
+          ),
+
+          redirect: "follow"
+        }
+      );
+
+
+      /* =========================
+         CHECK HTTP RESPONSE
+      ========================= */
+
+      if (!response.ok) {
+        throw new Error(
+          "Server error: HTTP " +
+          response.status
+        );
+      }
+
+
+      /* =========================
+         PARSE RESPONSE
+      ========================= */
+
+      const responseText =
+        await response.text();
+
+      let result;
+
+      try {
+        result =
+          JSON.parse(responseText);
+      } catch (error) {
+        console.error(
+          "Invalid server response:",
+          responseText
+        );
+
+        throw new Error(
+          "The server returned an invalid response."
+        );
+      }
+
+
+      /* =========================
+         HANDLE SUCCESS
+      ========================= */
+
+      if (!result.success) {
+        throw new Error(
+          result.message ||
+          "Application submission failed."
+        );
+      }
+
+
+      alert(
+        "Application submitted successfully!\n\n" +
+        "Application ID: " +
+        (result.applicationId || "Generated") +
+        "\n\nPayment Status: " +
+        (result.paymentStatus || "Pending")
+      );
+
+
+      /* =========================
+         RESET FORM
+      ========================= */
+
+      form.reset();
+
+      setApplicationDate();
+
+
+    } catch (error) {
+
+      console.error(
+        "Submission Error:",
+        error
+      );
+
+      alert(
+        "Submission Error:\n\n" +
+        (error.message ||
+          "An unexpected error occurred.") +
+        "\n\nPlease check your internet connection and try again."
+      );
+
+
+    } finally {
+
+      submitButton.disabled = false;
+
+      submitButton.textContent =
+        originalButtonText;
+
+    }
+
+  });
+}
 </script>
+
 
 </body>
 </html>
